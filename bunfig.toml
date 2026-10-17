@@ -1,0 +1,6 @@
+[install]
+exact = false
+
+[test]
+coverageThreshold = 0.9
+coverageSkipTestFiles = true

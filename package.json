@@ -1,0 +1,55 @@
+{
+  "name": "elysia-rate-limiter",
+  "version": "0.1.0",
+  "description": "Rate limiting plugin for Elysia with Zod-validated config, three algorithms, and memory or Redis stores.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "llms.txt",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "elysia",
+    "bun",
+    "rate-limit",
+    "rate-limiter",
+    "throttle",
+    "redis",
+    "zod",
+    "security"
+  ],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "scripts": {
+    "build": "bun run scripts/build.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "pack:check": "bun pm pack --dry-run",
+    "prepublishOnly": "bun run typecheck && bun test && bun run build"
+  },
+  "peerDependencies": {
+    "elysia": "^1.4.30",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "elysia": "^1.4.30",
+    "typescript": "^5.9.3",
+    "zod": "^4.6.7"
+  },
+  "packageManager": "bun@1.3.0"
+}
