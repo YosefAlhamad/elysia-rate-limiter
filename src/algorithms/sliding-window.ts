@@ -24,15 +24,14 @@ export class SlidingWindow implements RateLimitAlgorithm<SlidingWindowState> {
 
   evaluate(state: SlidingWindowState | undefined, now: number, cost: number): Evaluation<SlidingWindowState> {
     const { limit, windowMs } = this.policy
-    const windowStart = Math.floor(now / windowMs) * windowMs
-    const elapsed = now - windowStart
-    const { current, previous } = this.rollForward(state, windowStart)
+    const { windowStart, current, previous } = this.rollForward(state, now)
+    const elapsed = Math.max(0, now - windowStart)
     const allowed = this.estimate(previous, current, elapsed) + cost <= limit
     const nextCurrent = allowed ? current + cost : current
     const retryAfterMs = allowed ? 0 : this.retryAfter(windowStart, now, { current, previous }, cost)
     return {
       state: { windowStart, current: nextCurrent, previous },
-      ttlMs: 2 * windowMs - elapsed,
+      ttlMs: windowStart + 2 * windowMs - now,
       decision: {
         allowed,
         limit,
@@ -43,10 +42,12 @@ export class SlidingWindow implements RateLimitAlgorithm<SlidingWindowState> {
     }
   }
 
-  private rollForward(state: SlidingWindowState | undefined, windowStart: number): Counters {
-    if (state?.windowStart === windowStart) return { current: state.current, previous: state.previous }
-    if (state?.windowStart === windowStart - this.policy.windowMs) return { current: 0, previous: state.current }
-    return { current: 0, previous: 0 }
+  private rollForward(state: SlidingWindowState | undefined, now: number): SlidingWindowState {
+    const { windowMs } = this.policy
+    const windowStart = Math.floor(now / windowMs) * windowMs
+    if (state?.windowStart === windowStart || state?.windowStart === windowStart + windowMs) return state
+    if (state?.windowStart === windowStart - windowMs) return { windowStart, current: 0, previous: state.current }
+    return { windowStart, current: 0, previous: 0 }
   }
 
   private estimate(previous: number, current: number, elapsed: number): number {

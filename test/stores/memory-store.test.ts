@@ -82,6 +82,23 @@ describe('MemoryStore TTL', () => {
     expect(await get(store, 'b')).toBeNull()
   })
 
+  test('rounds TTLs up to whole milliseconds, at least 1', async () => {
+    const clock = new ManualClock()
+    const store = createStore({ clock })
+    await put(store, 'zero', 'a', 0)
+    await put(store, 'fraction', 'b', 1.2)
+    clock.advance(1)
+    expect(await get(store, 'zero')).toBeNull()
+    expect(await get(store, 'fraction')).toBe('b')
+  })
+
+  test('rejects a non-finite TTL and keeps the previous value', async () => {
+    const store = createStore({ clock: new ManualClock() })
+    await put(store, 'a', 'one')
+    await expect(put(store, 'a', 'two', Number.NaN)).rejects.toThrow(RangeError)
+    expect(await get(store, 'a')).toBe('one')
+  })
+
   test('removes an expired entry when it is read', async () => {
     const clock = new ManualClock()
     const store = createStore({ clock })

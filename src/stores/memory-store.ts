@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { type Clock, SystemClock, isClock } from '../core/clock'
 import { RateLimiterConfigError } from '../errors'
-import type { RateLimitStore, StoreMutation, StoreWrite } from './store'
+import { type RateLimitStore, type StoreMutation, type StoreWrite, normalizeTtlMs } from './store'
 
 export interface MemoryStoreOptions {
   readonly maxKeys?: number
@@ -65,8 +65,9 @@ export class MemoryStore implements RateLimitStore {
   }
 
   private write<TResult>(key: string, write: StoreWrite<TResult>): void {
+    const expiresAt = this.clock.now() + normalizeTtlMs(write.ttlMs)
     this.entries.delete(key)
-    this.entries.set(key, { value: write.value, expiresAt: this.clock.now() + write.ttlMs })
+    this.entries.set(key, { value: write.value, expiresAt })
     this.evictOverflow()
   }
 

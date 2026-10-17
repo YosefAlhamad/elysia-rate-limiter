@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { MemoryStore } from '../../src/stores/memory-store'
-import { isRateLimitStore } from '../../src/stores/store'
+import { isRateLimitStore, normalizeTtlMs } from '../../src/stores/store'
 
 const noop = async () => undefined
 
@@ -24,5 +24,21 @@ describe('isRateLimitStore', () => {
     { update: noop, delete: noop, close: 'no' },
   ])('rejects %p', (value) => {
     expect(isRateLimitStore(value)).toBe(false)
+  })
+})
+
+describe('normalizeTtlMs', () => {
+  test.each([
+    [1_000, 1_000],
+    [1_500.2, 1_501],
+    [0.1, 1],
+    [0, 1],
+    [-50, 1],
+  ])('turns %p into %p', (input, expected) => {
+    expect(normalizeTtlMs(input)).toBe(expected)
+  })
+
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])('rejects %p', (input) => {
+    expect(() => normalizeTtlMs(input)).toThrow(RangeError)
   })
 })

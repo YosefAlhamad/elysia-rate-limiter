@@ -153,6 +153,23 @@ describe('RedisStore with FakeRedis', () => {
     expect(await store.update('a', counter())).toBe(1)
   })
 
+  test('never conflicts with itself when many updates hit one key at once', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisStore({ client: redis, maxAttempts: 1 })
+    const results = await Promise.all(Array.from({ length: 200 }, () => store.update('hot', counter())))
+    expect(results).toEqual(Array.from({ length: 200 }, (_, index) => index + 1))
+    expect(redis.get('hot')).toBe('200')
+  })
+
+  test('runs a delete after the updates queued before it', async () => {
+    const redis = new FakeRedis()
+    const store = new RedisStore({ client: redis })
+    const updates = [store.update('a', counter()), store.update('a', counter())]
+    await store.delete('a')
+    expect(await Promise.all(updates)).toEqual([1, 2])
+    expect(redis.get('a')).toBeNull()
+  })
+
   test('throws StoreConflictError after maxAttempts conflicts', async () => {
     const redis = new FakeRedis()
     const store = new RedisStore({ client: redis, maxAttempts: 3 })
@@ -226,6 +243,24 @@ describe('RedisStore with FakeRedis', () => {
     const error = await new RedisStore({ client }).update('a', counter()).catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(StoreUnavailableError)
     expect(error).toHaveProperty('cause', failure)
+  })
+
+  test.each<[string, unknown]>([
+    ['null', null],
+    ['a word', 'OK'],
+    ['a number other than 0 or 1', 2],
+  ])('rejects %s as a script reply', async (_, reply) => {
+    const client: RedisCommandClient = { send: async (command) => (command === 'GET' ? null : reply) }
+    await expect(new RedisStore({ client }).update('a', counter())).rejects.toBeInstanceOf(StoreUnavailableError)
+  })
+
+  test.each<[string, unknown]>([
+    ['numbers', 1],
+    ['strings', '1'],
+    ['bigints', 1n],
+  ])('accepts script replies as %s', async (_, reply) => {
+    const client: RedisCommandClient = { send: async (command) => (command === 'GET' ? null : reply) }
+    expect(await new RedisStore({ client }).update('a', counter())).toBe(1)
   })
 
   test('rejects an unexpected GET reply without retrying', async () => {

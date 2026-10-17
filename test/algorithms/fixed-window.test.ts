@@ -82,3 +82,20 @@ describe('FixedWindow', () => {
     }
   })
 })
+
+describe('FixedWindow with clock skew between servers', () => {
+  const algorithm = new FixedWindow({ limit: 3, windowMs: 1_000 })
+
+  test('keeps counting a window stored up to one window ahead', () => {
+    const { state, decision, ttlMs } = algorithm.evaluate({ windowStart: 11_000, count: 3 }, 10_900, 1)
+    expect(decision).toEqual({ allowed: false, limit: 3, remaining: 0, resetAt: 12_000, retryAfterMs: 1_100 })
+    expect(state).toEqual({ windowStart: 11_000, count: 3 })
+    expect(ttlMs).toBe(1_100)
+  })
+
+  test('starts fresh when the stored window is further ahead than one window', () => {
+    const { state, decision } = algorithm.evaluate({ windowStart: 12_000, count: 3 }, 10_900, 1)
+    expect(decision.allowed).toBe(true)
+    expect(state).toEqual({ windowStart: 10_000, count: 1 })
+  })
+})

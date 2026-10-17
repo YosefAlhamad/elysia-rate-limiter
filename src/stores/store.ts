@@ -18,3 +18,8 @@ export const isRateLimitStore = (value: unknown): value is RateLimitStore => {
   if (!('delete' in value) || typeof value.delete !== 'function') return false
   return !('close' in value) || value.close === undefined || typeof value.close === 'function'
 }
+
+export const normalizeTtlMs = (ttlMs: number): number => {
+  if (!Number.isFinite(ttlMs)) throw new RangeError('Store TTL must be a finite number of milliseconds')
+  return Math.max(1, Math.ceil(ttlMs))
+}

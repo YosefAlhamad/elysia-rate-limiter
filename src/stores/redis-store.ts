@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { RateLimiterConfigError, StoreConflictError, StoreUnavailableError } from '../errors'
-import type { RateLimitStore, StoreMutation, StoreWrite } from './store'
+import { KeyedQueue } from './keyed-queue'
+import { type RateLimitStore, type StoreMutation, type StoreWrite, normalizeTtlMs } from './store'
 
 export interface RedisCommandClient {
   send(command: string, args: string[]): Promise<unknown>
@@ -31,12 +32,11 @@ export class RedisStore implements RateLimitStore {
     'return 1',
   ].join('\n')
 
-  private static readonly COMPARE_AND_SET_SHA = new Bun.CryptoHasher('sha1')
-    .update(RedisStore.COMPARE_AND_SET_SCRIPT)
-    .digest('hex')
+  private static readonly COMPARE_AND_SET_SHA = Bun.CryptoHasher.hash('sha1', RedisStore.COMPARE_AND_SET_SCRIPT, 'hex')
 
   private readonly client: RedisCommandClient
   private readonly maxAttempts: number
+  private readonly queue = new KeyedQueue()
 
   constructor(options: RedisStoreOptions) {
     const result = redisStoreOptionsSchema.safeParse(options)
@@ -45,17 +45,23 @@ export class RedisStore implements RateLimitStore {
     this.maxAttempts = result.data.maxAttempts
   }
 
-  async update<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult> {
+  update<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult> {
+    return this.queue.run(key, () => this.compareAndSetLoop(key, mutation))
+  }
+
+  delete(key: string): Promise<void> {
+    return this.queue.run(key, async () => {
+      await this.send('DEL', [key])
+    })
+  }
+
+  private async compareAndSetLoop<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult> {
     for (let attempt = 0; attempt < this.maxAttempts; attempt += 1) {
       const current = await this.read(key)
       const write = mutation(current)
       if (await this.compareAndSet(key, current, write)) return write.result
     }
     throw new StoreConflictError(`Rate limit state kept changing after ${this.maxAttempts} attempts`)
-  }
-
-  async delete(key: string): Promise<void> {
-    await this.send('DEL', [key])
   }
 
   private async read(key: string): Promise<string | null> {
@@ -66,9 +72,8 @@ export class RedisStore implements RateLimitStore {
 
   private async compareAndSet<TResult>(key: string, current: string | null, write: StoreWrite<TResult>): Promise<boolean> {
     const existed = current === null ? '0' : '1'
-    const args = ['1', key, existed, current ?? '', write.value, RedisStore.ttlArgument(write.ttlMs)]
-    const reply = await this.runScript(args)
-    return Number(reply) === 1
+    const args = ['1', key, existed, current ?? '', write.value, String(normalizeTtlMs(write.ttlMs))]
+    return RedisStore.isWritten(await this.runScript(args))
   }
 
   private async runScript(args: string[]): Promise<unknown> {
@@ -88,9 +93,11 @@ export class RedisStore implements RateLimitStore {
     }
   }
 
-  private static ttlArgument(ttlMs: number): string {
-    if (!Number.isFinite(ttlMs)) throw new RangeError('Store TTL must be a finite number of milliseconds')
-    return String(Math.max(1, Math.ceil(ttlMs)))
+  private static isWritten(reply: unknown): boolean {
+    const code = typeof reply === 'number' || typeof reply === 'string' || typeof reply === 'bigint' ? Number(reply) : Number.NaN
+    if (code === 1) return true
+    if (code === 0) return false
+    throw new StoreUnavailableError('Rate limit store returned an unexpected reply')
   }
 
   private static isMissingScript(error: unknown): boolean {

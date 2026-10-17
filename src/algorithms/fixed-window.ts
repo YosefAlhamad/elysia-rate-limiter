@@ -18,8 +18,7 @@ export class FixedWindow implements RateLimitAlgorithm<FixedWindowState> {
 
   evaluate(state: FixedWindowState | undefined, now: number, cost: number): Evaluation<FixedWindowState> {
     const { limit, windowMs } = this.policy
-    const windowStart = Math.floor(now / windowMs) * windowMs
-    const count = state?.windowStart === windowStart ? state.count : 0
+    const { windowStart, count } = this.currentWindow(state, now)
     const allowed = count + cost <= limit
     const nextCount = allowed ? count + cost : count
     const resetAt = windowStart + windowMs
@@ -35,5 +34,12 @@ export class FixedWindow implements RateLimitAlgorithm<FixedWindowState> {
         retryAfterMs: allowed ? 0 : untilReset,
       },
     }
+  }
+
+  private currentWindow(state: FixedWindowState | undefined, now: number): FixedWindowState {
+    const { windowMs } = this.policy
+    const windowStart = Math.floor(now / windowMs) * windowMs
+    if (state?.windowStart === windowStart || state?.windowStart === windowStart + windowMs) return state
+    return { windowStart, count: 0 }
   }
 }

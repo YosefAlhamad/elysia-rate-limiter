@@ -20,18 +20,17 @@ export class TokenBucket implements RateLimitAlgorithm<TokenBucketState> {
     const { limit } = this.policy
     const available = this.refill(state, now)
     const allowed = available >= cost
-    const tokens = allowed ? available - cost : available
-    const updatedAt = Math.max(now, state?.updatedAt ?? now)
-    const untilFull = updatedAt - now + this.millisecondsToEarn(limit - tokens)
+    const next = { tokens: allowed ? available - cost : available, updatedAt: this.anchor(state, now) }
+    const untilFull = this.waitFor(next, now, limit)
     return {
-      state: { tokens, updatedAt },
+      state: next,
       ttlMs: Math.max(1, untilFull),
       decision: {
         allowed,
         limit,
-        remaining: Math.floor(tokens),
+        remaining: Math.floor(next.tokens),
         resetAt: now + untilFull,
-        retryAfterMs: allowed ? 0 : updatedAt - now + this.millisecondsToEarn(cost - tokens),
+        retryAfterMs: allowed ? 0 : this.waitFor(next, now, cost),
       },
     }
   }
@@ -43,8 +42,14 @@ export class TokenBucket implements RateLimitAlgorithm<TokenBucketState> {
     return Math.min(limit, state.tokens + (elapsed * limit) / windowMs)
   }
 
-  private millisecondsToEarn(tokens: number): number {
+  private anchor(state: TokenBucketState | undefined, now: number): number {
+    return Math.max(now, state?.updatedAt ?? now)
+  }
+
+  private waitFor(state: TokenBucketState, now: number, tokens: number): number {
     const { limit, windowMs } = this.policy
-    return Math.ceil((tokens * windowMs) / limit)
+    const estimate = Math.max(0, state.updatedAt - now + Math.ceil(((tokens - state.tokens) * windowMs) / limit))
+    const candidates = [estimate - 1, estimate, estimate + 1].filter((wait) => wait >= 0)
+    return candidates.find((wait) => this.refill(state, now + wait) >= tokens) ?? estimate + 1
   }
 }

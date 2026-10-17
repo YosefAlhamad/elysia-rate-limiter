@@ -101,3 +101,26 @@ describe('SlidingWindow', () => {
     }
   })
 })
+
+describe('SlidingWindow with clock skew between servers', () => {
+  const algorithm = new SlidingWindow({ limit: 4, windowMs: 1_000 })
+
+  test('keeps counting a window stored up to one window ahead', () => {
+    const { state, decision, ttlMs } = algorithm.evaluate({ windowStart: 11_000, current: 4, previous: 0 }, 10_900, 1)
+    expect(decision.allowed).toBe(false)
+    expect(decision.retryAfterMs).toBeGreaterThan(1_000)
+    expect(state).toEqual({ windowStart: 11_000, current: 4, previous: 0 })
+    expect(ttlMs).toBe(2_100)
+  })
+
+  test('counts the full previous share before the stored window starts', () => {
+    const { decision } = algorithm.evaluate({ windowStart: 11_000, current: 0, previous: 4 }, 10_900, 1)
+    expect(decision).toMatchObject({ allowed: false, remaining: 0 })
+  })
+
+  test('starts fresh when the stored window is further ahead than one window', () => {
+    const { state, decision } = algorithm.evaluate({ windowStart: 12_000, current: 4, previous: 4 }, 10_900, 1)
+    expect(decision.allowed).toBe(true)
+    expect(state).toEqual({ windowStart: 10_000, current: 1, previous: 0 })
+  })
+})
