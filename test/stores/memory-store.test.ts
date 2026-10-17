@@ -31,6 +31,7 @@ describe('MemoryStore options', () => {
     ['maxKeys', 1.5],
     ['sweepIntervalMs', -1],
     ['clock', { now: 'later' }],
+    ['maxkeys', 5],
   ])('rejects invalid %s', (field, value) => {
     const create = () => new MemoryStore({ [field]: value })
     expect(create).toThrow(RateLimiterConfigError)

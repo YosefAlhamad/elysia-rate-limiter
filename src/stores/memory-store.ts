@@ -14,7 +14,7 @@ interface MemoryEntry {
   readonly expiresAt: number
 }
 
-const memoryStoreOptionsSchema = z.object({
+const memoryStoreOptionsSchema = z.strictObject({
   maxKeys: z.number().int().positive().max(100_000_000).default(100_000),
   sweepIntervalMs: z.number().int().positive().max(86_400_000).default(60_000),
   clock: z.custom<Clock>(isClock, 'Expected an object with a now() method').optional(),
