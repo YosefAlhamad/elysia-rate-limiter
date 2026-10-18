@@ -61,6 +61,15 @@ const describeRedisStoreContract = (name: string, client: () => RedisCommandClie
       expect(await client().send('GET', [key])).toBe('42')
     })
 
+    test('reads a value without writing it', async () => {
+      const store = new RedisStore({ client: client() })
+      const key = newKey()
+      expect(await store.read(key)).toBeNull()
+      expect(await client().send('GET', [key])).toBeNull()
+      await store.update(key, counter())
+      expect(await store.read(key)).toBe('1')
+    })
+
     test('deletes a key', async () => {
       const store = new RedisStore({ client: client() })
       const key = newKey()

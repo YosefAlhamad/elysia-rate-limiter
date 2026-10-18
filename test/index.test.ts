@@ -4,6 +4,7 @@ import * as entry from '../src/index'
 test('exports only the public runtime API', () => {
   expect(Object.keys(entry).sort()).toEqual([
     'MemoryStore',
+    'RateLimiter',
     'RateLimiterConfigError',
     'RateLimiterError',
     'RedisStore',
@@ -11,5 +12,6 @@ test('exports only the public runtime API', () => {
     'StoreUnavailableError',
     'SystemClock',
     'isRateLimitStore',
+    'rateLimiterOptionsSchema',
   ])
 })

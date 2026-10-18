@@ -39,8 +39,12 @@ export class MemoryStore implements RateLimitStore {
     return this.entries.size
   }
 
+  async read(key: string): Promise<string | null> {
+    return this.readEntry(key)
+  }
+
   async update<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult> {
-    const write = mutation(this.read(key))
+    const write = mutation(this.readEntry(key))
     this.write(key, write)
     return write.result
   }
@@ -54,7 +58,7 @@ export class MemoryStore implements RateLimitStore {
     this.entries.clear()
   }
 
-  private read(key: string): string | null {
+  private readEntry(key: string): string | null {
     const entry = this.entries.get(key)
     if (entry === undefined) return null
     if (this.isExpired(entry, this.clock.now())) {

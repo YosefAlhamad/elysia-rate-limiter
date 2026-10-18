@@ -7,6 +7,7 @@ export interface StoreWrite<TResult> {
 export type StoreMutation<TResult> = (current: string | null) => StoreWrite<TResult>
 
 export interface RateLimitStore {
+  read(key: string): Promise<string | null>
   update<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult>
   delete(key: string): Promise<void>
   close?(): Promise<void>
@@ -14,6 +15,7 @@ export interface RateLimitStore {
 
 export const isRateLimitStore = (value: unknown): value is RateLimitStore => {
   if (typeof value !== 'object' || value === null) return false
+  if (!('read' in value) || typeof value.read !== 'function') return false
   if (!('update' in value) || typeof value.update !== 'function') return false
   if (!('delete' in value) || typeof value.delete !== 'function') return false
   return !('close' in value) || value.close === undefined || typeof value.close === 'function'

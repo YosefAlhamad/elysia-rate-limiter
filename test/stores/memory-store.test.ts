@@ -70,6 +70,22 @@ describe('MemoryStore.update', () => {
   })
 })
 
+describe('MemoryStore.read', () => {
+  test('returns the value without writing, refreshing the TTL, or reordering keys', async () => {
+    const clock = new ManualClock()
+    const store = createStore({ clock, maxKeys: 2 })
+    expect(await store.read('a')).toBeNull()
+    expect(store.size).toBe(0)
+    await put(store, 'a', 'one', 100)
+    await put(store, 'b', 'two', 100)
+    expect(await store.read('a')).toBe('one')
+    await put(store, 'c', 'three', 100)
+    expect(await store.read('a')).toBeNull()
+    clock.advance(100)
+    expect(await store.read('b')).toBeNull()
+  })
+})
+
 describe('MemoryStore TTL', () => {
   test('keeps a value until its TTL passes, then treats it as missing', async () => {
     const clock = new ManualClock()

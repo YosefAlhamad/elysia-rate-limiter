@@ -64,7 +64,7 @@ export class RedisStore implements RateLimitStore {
     throw new StoreConflictError(`Rate limit state kept changing after ${this.maxAttempts} attempts`)
   }
 
-  private async read(key: string): Promise<string | null> {
+  async read(key: string): Promise<string | null> {
     const reply = await this.send('GET', [key])
     if (reply === null || typeof reply === 'string') return reply
     throw new StoreUnavailableError('Rate limit store returned an unexpected reply')
