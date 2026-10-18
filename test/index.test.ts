@@ -12,6 +12,8 @@ test('exports only the public runtime API', () => {
     'StoreUnavailableError',
     'SystemClock',
     'isRateLimitStore',
+    'rateLimit',
+    'rateLimitPluginOptionsSchema',
     'rateLimiterOptionsSchema',
   ])
 })
