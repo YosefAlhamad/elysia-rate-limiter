@@ -48,9 +48,10 @@ The `demo/` folder is an Astro + React site that runs the real algorithm classes
 bun install
 bun run demo        # dev server at http://localhost:4321
 bun run demo:build  # static site in demo/dist
+bun run demo:deploy # build and deploy to Cloudflare Workers
 ```
 
-To host it on Cloudflare Pages, use the build command `bun install && bun run demo:build`, set the output directory to `demo/dist`, and set the `BUN_VERSION` environment variable to `1.3.14` or newer.
+`bun run demo:deploy` builds the site and deploys it to Cloudflare Workers as static assets, using `demo/wrangler.jsonc`. Run `bunx wrangler login` once first.
 
 ## Options
 

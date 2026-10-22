@@ -44,7 +44,8 @@
     "test:coverage": "bun test --coverage",
     "pack:check": "bun pm pack --dry-run",
     "prepublishOnly": "bun run typecheck && bun test && bun run build",
-    "demo:build": "bun run --cwd demo build"
+    "demo:build": "bun run --cwd demo build",
+    "demo:deploy": "bun run --cwd demo deploy"
   },
   "peerDependencies": {
     "elysia": "^1.4.30",

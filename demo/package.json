@@ -6,7 +6,8 @@
     "dev": "bun --bun astro dev",
     "build": "bun --bun astro build",
     "preview": "bun --bun astro preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "deploy": "bun run build && bunx wrangler deploy"
   },
   "dependencies": {
     "@astrojs/react": "^7.1.1",
