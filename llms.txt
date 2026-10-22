@@ -1,0 +1,137 @@
+# elysia-rate-limiter
+
+Rate limiting plugin for Elysia on Bun. Three algorithms (sliding window, fixed window, token bucket), an in-memory store and a Redis store, options validated with Zod, IETF RateLimit-* headers, and safe client IP handling (X-Forwarded-For ignored unless trusted, IPv6 grouped by /56). Also usable outside Elysia through the RateLimiter class.
+
+## Install
+
+bun add elysia-rate-limiter
+
+Peer dependencies: elysia ^1.4.30, zod ^4.6.7. Requires Bun 1.3 or newer.
+
+## Public API
+
+import {
+  rateLimit, RateLimiter, MemoryStore, RedisStore, isRateLimitStore, SystemClock,
+  RateLimiterError, RateLimiterConfigError, StoreConflictError, StoreUnavailableError,
+  rateLimiterOptionsSchema, rateLimitPluginOptionsSchema,
+} from 'elysia-rate-limiter'
+
+import type {
+  RateLimitDecision, RateLimitOutcome, RateLimitPlugin, RateLimitPluginOptions, RateLimiterOptions,
+  RateLimitStore, StoreMutation, StoreWrite, RedisCommandClient, Clock, AlgorithmName,
+  RateLimitRequestContext, TrustProxy,
+} from 'elysia-rate-limiter'
+
+rateLimit(options: RateLimitPluginOptions): RateLimitPlugin
+  Elysia plugin. Adds ctx.rateLimit: RateLimitOutcome to handlers. Answers 429 when limited.
+  Throws RateLimiterConfigError immediately on invalid options.
+
+class RateLimiter
+  constructor(options: RateLimiterOptions)
+  consume(identifier: string, cost?: number): Promise<RateLimitDecision>
+  peek(identifier: string): Promise<RateLimitDecision>
+  reset(identifier: string): Promise<void>
+  close(): Promise<void>
+  readonly limit: number
+  readonly windowMs: number
+  readonly algorithmName: AlgorithmName
+
+class MemoryStore implements RateLimitStore
+  constructor(options?: { maxKeys?: number; sweepIntervalMs?: number; clock?: Clock })
+  readonly size: number
+  Per process only. Defaults: maxKeys 100000 (LRU eviction), sweepIntervalMs 60000.
+
+class RedisStore implements RateLimitStore
+  constructor(options: { client: RedisCommandClient; maxAttempts?: number })
+  Atomic across instances via a compare-and-set Lua script. maxAttempts default 5, range 1 to 20.
+
+interface RedisCommandClient { send(command: string, args: string[]): Promise<unknown> }
+  Bun's RedisClient from 'bun' fits as is.
+  ioredis: { send: (command, args) => redis.call(command, ...args) }
+  node-redis: { send: (command, args) => redis.sendCommand([command, ...args]) }
+
+interface RateLimitStore {
+  read(key: string): Promise<string | null>
+  update<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult>
+  delete(key: string): Promise<void>
+  close?(): Promise<void>
+}
+type StoreMutation<TResult> = (current: string | null) => StoreWrite<TResult>
+interface StoreWrite<TResult> { readonly value: string; readonly ttlMs: number; readonly result: TResult }
+
+interface RateLimitDecision {
+  readonly allowed: boolean
+  readonly limit: number
+  readonly remaining: number
+  readonly resetAt: number
+  readonly retryAfterMs: number
+}
+
+type RateLimitOutcome =
+  | { readonly status: 'allowed'; readonly decision: RateLimitDecision }
+  | { readonly status: 'limited'; readonly decision: RateLimitDecision }
+  | { readonly status: 'skipped' }
+  | { readonly status: 'unavailable'; readonly error: RateLimiterError }
+
+interface RateLimitRequestContext {
+  readonly request: Request
+  readonly path: string
+  readonly ip: string | null
+  readonly elysia: Context
+}
+
+interface Clock { now(): number }
+type AlgorithmName = 'fixed-window' | 'sliding-window' | 'token-bucket'
+type TrustProxy = boolean | number
+
+## Options
+
+RateLimiterOptions (RateLimiter) and RateLimitPluginOptions (rateLimit) share the first six. Unknown keys are rejected.
+
+limit: number, required. Requests per window, whole number 1 to 1000000000.
+window: number | string, required. Milliseconds or "500ms", "30s", "15m", "1h", "1d". At most 30 days.
+algorithm: 'fixed-window' | 'sliding-window' | 'token-bucket', default 'sliding-window'.
+prefix: string, default 'rate-limit'. 1 to 64 of A-Z a-z 0-9 _ -. Use a different prefix per limiter on a shared store.
+store: RateLimitStore, default a new MemoryStore owned and closed by the limiter.
+clock: Clock, default system clock.
+
+Plugin only:
+key: (ctx) => string | Promise<string>, default client IP. What to count by.
+cost: number | (ctx) => number | Promise<number>, default 1. Whole number 1 to limit.
+skip: (ctx) => boolean | Promise<boolean>. Return true to not count a request.
+trustProxy: boolean | number, default false. Number = proxies in front of the app (1 to 32); uses the X-Forwarded-For entry that many places from the right. true = leftmost entry, only safe when a proxy overwrites the header.
+ipv6Subnet: number 0 to 128, default 56.
+headers: boolean, default true. RateLimit-Limit, RateLimit-Remaining, RateLimit-Reset, RateLimit-Policy, and Retry-After on 429.
+failureMode: 'open' | 'closed', default 'open'. Store failure: let the request through, or answer 503 { "error": "Rate limiter unavailable" }.
+onLimited: (ctx, decision) => unknown, may be async. Custom 429 body or Response. undefined or null uses the default body { "error": "Too Many Requests", "retryAfter": <seconds> }.
+scope: 'global' | 'scoped' | 'local', default 'scoped'. Elysia hook scope. Hooks cover only routes registered after .use().
+
+Clients with no known IP and no key function share one bucket named 'unknown-client'.
+MemoryStore counts per process; use RedisStore when the app runs on more than one instance.
+
+## Example: Elysia app with Redis
+
+import { RedisClient } from 'bun'
+import { Elysia } from 'elysia'
+import { RedisStore, rateLimit } from 'elysia-rate-limiter'
+
+const store = new RedisStore({ client: new RedisClient(process.env.REDIS_URL ?? 'redis://localhost:6379') })
+
+const auth = new Elysia({ prefix: '/auth' })
+  .use(rateLimit({ limit: 5, window: '15m', algorithm: 'fixed-window', prefix: 'auth', store, failureMode: 'closed' }))
+  .post('/login', () => ({ ok: true }))
+
+const app = new Elysia()
+  .use(rateLimit({ limit: 100, window: '1m', prefix: 'global', store, trustProxy: 1 }))
+  .use(auth)
+  .get('/', ({ rateLimit }) => (rateLimit.status === 'allowed' ? `${rateLimit.decision.remaining} left` : 'ok'))
+  .listen(3000)
+
+## Example: RateLimiter outside Elysia
+
+import { RateLimiter } from 'elysia-rate-limiter'
+
+const limiter = new RateLimiter({ limit: 10, window: '1s', algorithm: 'token-bucket' })
+
+const decision = await limiter.consume('user-42')
+if (!decision.allowed) console.log(`retry in ${decision.retryAfterMs}ms`)
