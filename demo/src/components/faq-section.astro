@@ -1,0 +1,52 @@
+---
+interface Question {
+  readonly question: string
+  readonly answer: string
+}
+
+const QUESTIONS: readonly Question[] = [
+  {
+    question: 'Which algorithm should I start with?',
+    answer:
+      'The sliding window, which is the default. It behaves like a fixed window without the spike at the boundary, and still stores only three numbers per client. Pick the token bucket when short bursts are fine as long as the average stays steady, or the fixed window when a quota has to line up with the clock.',
+  },
+  {
+    question: 'Why can a fixed window let through twice the limit?',
+    answer:
+      'The counter resets at every boundary. A client that sends a full limit just before the reset and another full limit just after gets twice the limit in a moment. Run the “Window boundary trick” scenario in the playground and watch it happen.',
+  },
+  {
+    question: 'Is the sliding window count exact?',
+    answer:
+      'No, it is an estimate. It assumes the previous window’s requests were spread evenly and counts only the share that still overlaps the rolling window. In practice it stays close to an exact log of timestamps while using constant memory.',
+  },
+  {
+    question: 'What do RateLimit-Remaining and Retry-After mean?',
+    answer:
+      'RateLimit-Remaining is how many more requests fit right now. RateLimit-Reset and Retry-After are whole seconds, rounded up, until the limit resets or until a rejected client should try again. Each card shows the exact headers the plugin would send.',
+  },
+  {
+    question: 'Does this page talk to a server?',
+    answer:
+      'No. The real algorithm classes run in your browser on a simulated clock, so you can pause, speed up and replay traffic. The plugin runs the same evaluate() code against a memory or Redis store.',
+  },
+]
+---
+
+<section class="section" id="questions">
+  <div class="section__intro">
+    <span class="node-tag">FAQ</span>
+    <h2 class="section__title">Questions developers ask</h2>
+  </div>
+  <div class="faq">
+    {QUESTIONS.map(({ question, answer }) => (
+      <details class="faq__item">
+        <summary class="faq__question">
+          {question}
+          <span class="faq__chevron" aria-hidden="true">↓</span>
+        </summary>
+        <p class="faq__answer">{answer}</p>
+      </details>
+    ))}
+  </div>
+</section>

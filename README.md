@@ -40,6 +40,18 @@ The default store is a `MemoryStore`, which lives inside one process. **If your 
 
 Every algorithm stores a few numbers per key, so memory per client is constant.
 
+### Interactive demo
+
+The `demo/` folder is an Astro + React site that runs the real algorithm classes in the browser on a simulated clock. You can send requests, run scenarios such as the window boundary burst, and follow each decision step by step for all three algorithms side by side. It is not part of the published package.
+
+```sh
+bun install
+bun run demo        # dev server at http://localhost:4321
+bun run demo:build  # static site in demo/dist
+```
+
+To host it on Cloudflare Pages, use the build command `bun install && bun run demo:build`, set the output directory to `demo/dist`, and set the `BUN_VERSION` environment variable to `1.3.14` or newer.
+
 ## Options
 
 | Option | Type | Default | Meaning |

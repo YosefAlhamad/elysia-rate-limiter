@@ -1,0 +1,45 @@
+---
+import { Code } from 'astro:components'
+
+const QUICK_START = `import { Elysia } from 'elysia'
+import { rateLimit } from 'elysia-rate-limiter'
+
+const app = new Elysia()
+  .use(rateLimit({ limit: 100, window: '1m', algorithm: 'sliding-window' }))
+  .get('/', () => 'Hello')
+  .listen(3000)`
+
+const BURSTY = `new Elysia()
+  .group('/api', (api) =>
+    api
+      .use(
+        rateLimit({
+          limit: 1_000,
+          window: '1m',
+          algorithm: 'token-bucket',
+        }),
+      )
+      .get('/search', search),
+  )`
+---
+
+<section class="section" id="usage">
+  <div class="section__intro">
+    <span class="node-tag">Usage</span>
+    <h2 class="section__title">Pick the one you just watched</h2>
+    <p class="section__lead">
+      Every algorithm in the playground is one option away. The plugin sends standard <code>RateLimit-*</code> headers and a
+      <code>Retry-After</code> on every 429.
+    </p>
+  </div>
+  <div class="usage-grid">
+    <figure class="code-card">
+      <figcaption>Quick start</figcaption>
+      <Code code={QUICK_START} lang="ts" theme="github-light" />
+    </figure>
+    <figure class="code-card">
+      <figcaption>Allow bursts on an API group</figcaption>
+      <Code code={BURSTY} lang="ts" theme="github-light" />
+    </figure>
+  </div>
+</section>

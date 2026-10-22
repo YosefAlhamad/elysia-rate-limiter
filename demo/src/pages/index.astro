@@ -1,0 +1,37 @@
+---
+import AnnouncementBar from '../components/announcement-bar.astro'
+import FaqSection from '../components/faq-section.astro'
+import HeroSection from '../components/hero-section.astro'
+import HowItWorks from '../components/how-it-works.astro'
+import { RateLimitPlayground } from '../components/rate-limit-playground'
+import SiteFooter from '../components/site-footer.astro'
+import SiteHeader from '../components/site-header.astro'
+import UsageSection from '../components/usage-section.astro'
+import BaseLayout from '../layouts/base-layout.astro'
+---
+
+<BaseLayout
+  title="elysia-rate-limiter: see how rate limiting algorithms work"
+  description="An interactive, animated guide to the fixed window, sliding window and token bucket rate limiting algorithms."
+>
+  <AnnouncementBar />
+  <SiteHeader />
+  <main>
+    <HeroSection />
+    <section class="section section--playground" id="playground">
+      <div class="section__intro">
+        <span class="node-tag">Playground</span>
+        <h2 class="section__title">Same traffic, three algorithms</h2>
+        <p class="section__lead">
+          Every request goes to all three algorithms at the same moment. Turn up the traffic, try a scenario, or click any
+          dot to see why that request was allowed or rejected.
+        </p>
+      </div>
+      <RateLimitPlayground client:load />
+    </section>
+    <HowItWorks />
+    <UsageSection />
+    <FaqSection />
+  </main>
+  <SiteFooter />
+</BaseLayout>

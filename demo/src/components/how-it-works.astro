@@ -1,0 +1,96 @@
+---
+interface AlgorithmGuide {
+  readonly name: string
+  readonly title: string
+  readonly summary: string
+  readonly steps: readonly string[]
+  readonly stores: string
+  readonly goodFor: string
+  readonly watchOut: string
+}
+
+const GUIDES: readonly AlgorithmGuide[] = [
+  {
+    name: 'fixed-window',
+    title: 'Fixed window',
+    summary: 'Time is cut into clock-aligned windows. Each window has a counter that resets when the next window begins.',
+    steps: [
+      'Round the current time down to the start of its window.',
+      'If the stored counter belongs to an older window, start again at 0.',
+      'Allow the request if count + cost stays within the limit.',
+    ],
+    stores: '{ windowStart, count }',
+    goodFor: 'Simple quotas that are easy to explain, like 5 login attempts per 15 minutes.',
+    watchOut: 'A client can send a full limit just before a reset and another just after it: 2× the limit in a moment.',
+  },
+  {
+    name: 'sliding-window',
+    title: 'Sliding window',
+    summary:
+      'Keeps the current and previous window counts, then weighs the previous one by how much of it still overlaps a rolling window ending now.',
+    steps: [
+      'Roll the counters forward if a new window has started.',
+      'weight = the share of the previous window still inside the rolling window.',
+      'Allow the request if previous × weight + current + cost stays within the limit.',
+    ],
+    stores: '{ windowStart, previous, current }',
+    goodFor: 'Most APIs and pages. It smooths out the boundary spike at almost no extra cost. This is the default.',
+    watchOut: 'It is an estimate: it assumes the previous window’s requests were spread evenly.',
+  },
+  {
+    name: 'token-bucket',
+    title: 'Token bucket',
+    summary: 'A bucket holds up to limit tokens and refills evenly over the window. Every request takes tokens out.',
+    steps: [
+      'Add tokens for the time since the last update: elapsed × limit ÷ window.',
+      'Never fill past the bucket size.',
+      'Allow the request if there are at least cost tokens, then take them.',
+    ],
+    stores: '{ tokens, updatedAt }',
+    goodFor: 'APIs that should absorb short bursts but hold a steady average rate.',
+    watchOut: 'A full bucket lets a whole limit through at once, so size it for the burst you can handle.',
+  },
+]
+---
+
+<section class="section" id="how-it-works">
+  <div class="section__intro">
+    <span class="node-tag">How it works</span>
+    <h2 class="section__title">Three algorithms, a few numbers each</h2>
+    <p class="section__lead">
+      Each algorithm keeps a few numbers per client, so memory per client never grows. They differ in how they turn those
+      numbers into a yes or a no.
+    </p>
+  </div>
+  <div class="guide-grid">
+    {GUIDES.map((guide, index) => (
+      <article class="guide-card">
+        <header class="guide-card__header">
+          <span class="guide-card__index">0{index + 1}</span>
+          <div>
+            <h3 class="guide-card__title">{guide.title}</h3>
+            <code class="guide-card__name">algorithm: '{guide.name}'</code>
+          </div>
+        </header>
+        <p class="guide-card__summary">{guide.summary}</p>
+        <ol class="guide-card__steps">
+          {guide.steps.map((step) => <li>{step}</li>)}
+        </ol>
+        <dl class="guide-card__facts">
+          <div>
+            <dt>Stores per client</dt>
+            <dd><code>{guide.stores}</code></dd>
+          </div>
+          <div>
+            <dt>Good for</dt>
+            <dd>{guide.goodFor}</dd>
+          </div>
+          <div class="guide-card__warning">
+            <dt>Watch out</dt>
+            <dd>{guide.watchOut}</dd>
+          </div>
+        </dl>
+      </article>
+    ))}
+  </div>
+</section>

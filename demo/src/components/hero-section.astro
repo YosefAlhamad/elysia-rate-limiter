@@ -1,0 +1,109 @@
+---
+interface Packet {
+  readonly route: string
+  readonly begin: number
+  readonly denied: boolean
+}
+
+const SOURCES = [
+  { label: 'GET /api/search', y: 80 },
+  { label: 'POST /login', y: 180 },
+  { label: 'GET /feed', y: 280 },
+] as const
+
+const OUTCOMES = [
+  { label: '200 OK', y: 110, tone: 'allowed' },
+  { label: '429 Too Many', y: 250, tone: 'denied' },
+] as const
+
+const toHub = (y: number): string => `M260 ${y} C370 ${y} 370 180 480 180`
+const fromHub = (y: number): string => `M720 180 C830 180 830 ${y} 940 ${y}`
+const route = (source: number, outcome: number): string => `${toHub(source)} L720 180 C830 180 830 ${outcome} 940 ${outcome}`
+
+const PACKETS: readonly Packet[] = [
+  { route: route(80, 110), begin: 0, denied: false },
+  { route: route(180, 110), begin: 0.7, denied: false },
+  { route: route(280, 110), begin: 1.4, denied: false },
+  { route: route(180, 250), begin: 2.1, denied: true },
+  { route: route(80, 110), begin: 2.8, denied: false },
+  { route: route(280, 250), begin: 3.5, denied: true },
+]
+---
+
+<section class="hero" id="top">
+  <div class="wash wash--hero" aria-hidden="true"></div>
+  <div class="hero__content">
+    <span class="node-tag"><span class="node-tag__dot"></span>Interactive guide</span>
+    <h1 class="hero__title">Watch rate limiters decide, one request at a time.</h1>
+    <p class="hero__lead">
+      Send requests, bend time, and follow each one through a fixed window, a sliding window and a token bucket. Every step
+      shows the real numbers from the code.
+    </p>
+    <div class="hero__actions">
+      <a class="pill-button pill-button--primary" href="#playground">Open the playground <span aria-hidden="true">▸</span></a>
+      <button class="pill-button pill-button--ghost install-chip" type="button" data-copy="bun add elysia-rate-limiter">
+        <span class="install-chip__command">bun add elysia-rate-limiter</span>
+        <span class="install-chip__hint" data-copy-label>Copy</span>
+      </button>
+    </div>
+  </div>
+  <figure class="pipeline" aria-label="Requests flow through the rate limiter and come out as 200 OK or 429 Too Many Requests">
+    <svg class="pipeline__svg" viewBox="0 0 1200 360" role="img" aria-hidden="true">
+      <defs>
+        <radialGradient id="pipeline-glow">
+          <stop offset="0" stop-color="#a7fccd" stop-opacity="0.9" />
+          <stop offset="1" stop-color="#a7fccd" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="600" cy="180" r="170" fill="url(#pipeline-glow)" />
+      {SOURCES.map(({ y }) => <path class="pipeline__line" d={toHub(y)} />)}
+      {OUTCOMES.map(({ y }) => <path class="pipeline__line" d={fromHub(y)} />)}
+      {PACKETS.map((packet) => (
+        <circle class="pipeline__packet" r="6">
+          <animateMotion dur="4.2s" begin={`${packet.begin}s`} repeatCount="indefinite" path={packet.route} />
+          <animate
+            attributeName="fill"
+            dur="4.2s"
+            begin={`${packet.begin}s`}
+            repeatCount="indefinite"
+            values={`#242424;#242424;${packet.denied ? '#ff9473' : '#a7fccd'};${packet.denied ? '#ff9473' : '#a7fccd'}`}
+            keyTimes="0;0.55;0.6;1"
+          />
+        </circle>
+      ))}
+      {SOURCES.map(({ label, y }) => (
+        <g class="pipeline__node">
+          <rect x="40" y={y - 24} width="220" height="48" rx="24" />
+          <text x="150" y={y + 5} text-anchor="middle">{label}</text>
+        </g>
+      ))}
+      <g class="pipeline__node pipeline__node--hub">
+        <rect x="480" y="148" width="240" height="64" rx="32" />
+        <text x="600" y="186" text-anchor="middle">rateLimit()</text>
+      </g>
+      <text class="pipeline__caption" x="600" y="244" text-anchor="middle">fixed · sliding · token</text>
+      {OUTCOMES.map(({ label, y, tone }) => (
+        <g class={`pipeline__node pipeline__node--${tone}`}>
+          <rect x="940" y={y - 24} width="220" height="48" rx="24" />
+          <circle cx="968" cy={y} r="6" />
+          <text x="1060" y={y + 5} text-anchor="middle">{label}</text>
+        </g>
+      ))}
+    </svg>
+  </figure>
+</section>
+
+<script>
+  const buttons = document.querySelectorAll<HTMLButtonElement>('[data-copy]')
+  for (const button of buttons) {
+    button.addEventListener('click', async () => {
+      const label = button.querySelector('[data-copy-label]')
+      await navigator.clipboard.writeText(button.dataset.copy ?? '')
+      if (label === null) return
+      label.textContent = 'Copied'
+      setTimeout(() => {
+        label.textContent = 'Copy'
+      }, 1600)
+    })
+  }
+</script>
