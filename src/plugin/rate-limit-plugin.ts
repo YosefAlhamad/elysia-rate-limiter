@@ -20,6 +20,11 @@ export type RateLimitOutcome =
   | { readonly status: 'skipped' }
   | { readonly status: 'unavailable'; readonly error: RateLimiterError }
 
+interface RequestCheck {
+  readonly context: RateLimitRequestContext
+  readonly outcome: RateLimitOutcome
+}
+
 const UNKNOWN_CLIENT = 'unknown-client'
 
 const SKIPPED: RateLimitOutcome = { status: 'skipped' }
@@ -30,6 +35,7 @@ class RateLimitGuard {
   private readonly limiter: RateLimiter
   private readonly resolver: ClientIpResolver
   private readonly clock: Clock
+  private readonly checks = new WeakMap<Request, RequestCheck>()
 
   constructor(private readonly settings: RateLimitPluginSettings) {
     const { limit, windowMs, algorithm, prefix, store, clock } = settings
@@ -39,17 +45,15 @@ class RateLimitGuard {
   }
 
   async check(elysia: RateLimitElysiaContext): Promise<RateLimitOutcome> {
-    const context = this.requestContext(elysia)
-    if ((await this.settings.skip?.(context)) === true) return SKIPPED
-    const identifier = await this.identifierFor(context)
-    const cost = await this.costFor(context)
-    const outcome = await this.consume(identifier, cost)
-    this.applyHeaders(elysia, outcome)
-    return outcome
+    const result = await this.run(elysia)
+    this.checks.set(elysia.request, result)
+    return result.outcome
   }
 
-  respond(elysia: RateLimitElysiaContext, outcome: RateLimitOutcome): unknown {
-    if (outcome.status === 'limited') return this.limited(elysia, outcome.decision)
+  async respond(elysia: RateLimitElysiaContext): Promise<unknown> {
+    const { context, outcome } = await this.checkFor(elysia)
+    this.applyHeaders(elysia, outcome)
+    if (outcome.status === 'limited') return this.limited(elysia, context, outcome.decision)
     if (outcome.status !== 'unavailable' || this.settings.failureMode === 'open') return undefined
     elysia.set.status = 503
     return { error: 'Rate limiter unavailable' }
@@ -57,6 +61,22 @@ class RateLimitGuard {
 
   close(): Promise<void> {
     return this.limiter.close()
+  }
+
+  private async checkFor(elysia: RateLimitElysiaContext): Promise<RequestCheck> {
+    return this.checks.get(elysia.request) ?? this.run(elysia)
+  }
+
+  private async run(elysia: RateLimitElysiaContext): Promise<RequestCheck> {
+    const context = this.requestContext(elysia)
+    return { context, outcome: await this.evaluate(context) }
+  }
+
+  private async evaluate(context: RateLimitRequestContext): Promise<RateLimitOutcome> {
+    if ((await this.settings.skip?.(context)) === true) return SKIPPED
+    const identifier = await this.identifierFor(context)
+    const cost = await this.costFor(context)
+    return this.consume(identifier, cost)
   }
 
   private requestContext(elysia: RateLimitElysiaContext): RateLimitRequestContext {
@@ -94,9 +114,13 @@ class RateLimitGuard {
     for (const [name, value] of Object.entries(headers)) elysia.set.headers[name] = value
   }
 
-  private limited(elysia: RateLimitElysiaContext, decision: RateLimitDecision): unknown {
+  private async limited(
+    elysia: RateLimitElysiaContext,
+    context: RateLimitRequestContext,
+    decision: RateLimitDecision,
+  ): Promise<unknown> {
     elysia.set.status = 429
-    const custom = this.settings.onLimited?.(this.requestContext(elysia), decision)
+    const custom: unknown = await this.settings.onLimited?.(context, decision)
     if (custom !== undefined && custom !== null) return custom
     return { error: 'Too Many Requests', retryAfter: RateLimitHeaders.retryAfterSeconds(decision) }
   }
@@ -114,7 +138,7 @@ export const rateLimit = (options: RateLimitPluginOptions) => {
   pluginInstances += 1
   return new Elysia({ name: 'elysia-rate-limiter', seed: pluginInstances })
     .derive(scope, async (context) => ({ rateLimit: await guard.check(context) }))
-    .onBeforeHandle(scope, (context) => guard.respond(context, context.rateLimit))
+    .onBeforeHandle(scope, (context) => guard.respond(context))
     .onStop(() => guard.close())
 }
 

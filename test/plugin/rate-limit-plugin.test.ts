@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { Elysia } from 'elysia'
 import { RateLimiterConfigError, StoreConflictError } from '../../src/errors'
+import { KeyBuilder } from '../../src/keys/key-builder'
 import { RateLimitHeaders } from '../../src/plugin/rate-limit-headers'
 import type { RateLimitPluginOptions, RateLimitRequestContext } from '../../src/plugin/plugin-schema'
 import { type RateLimitOutcome, rateLimit } from '../../src/plugin/rate-limit-plugin'
+import { RedisStore } from '../../src/stores/redis-store'
 import type { RateLimitStore } from '../../src/stores/store'
+import { FakeRedis } from '../helpers/fake-redis'
 import { ManualClock } from '../helpers/manual-clock'
 
 const SECRET = 'redis://admin:hunter2@internal-host:6379'
@@ -32,6 +35,29 @@ const failingStore = (error: unknown): RateLimitStore => {
     throw error
   }
   return { read: fail, update: fail, delete: fail }
+}
+
+const conflictingRedisStore = (): RedisStore => {
+  const redis = new FakeRedis()
+  const key = new KeyBuilder('rate-limit', 'sliding-window').build('unknown-client')
+  let writes = 0
+  redis.onBeforeScript(() => {
+    writes += 1
+    redis.set(key, `other-writer-${writes}`, 60_000)
+  })
+  return new RedisStore({ client: redis, maxAttempts: 2 })
+}
+
+const STACK_FRAME = /\bat .+:\d+:\d+/
+
+const expectNoLeaks = (body: string | undefined) => {
+  expect(body).toBeString()
+  expect(body).not.toMatch(STACK_FRAME)
+  expect(body).not.toMatch(/[0-9a-f]{64}/)
+  expect(body).not.toContain('hunter2')
+  expect(body).not.toContain('internal-host')
+  expect(body).not.toContain('stack')
+  expect(body).not.toContain('other-writer')
 }
 
 describe('rateLimit options', () => {
@@ -88,6 +114,15 @@ describe('rateLimit responses', () => {
     const body = await limited?.text()
     expect(body).not.toContain('secret-prefix')
     expect(body).not.toContain('unknown-client')
+    expect(body).not.toContain(new KeyBuilder('secret-prefix', 'sliding-window').build('unknown-client'))
+    expectNoLeaks(body)
+  })
+
+  test('a failing key function answers 500 without a stack trace or the identifier', async () => {
+    const app = createApp({ key: () => ({ secret: SECRET }) as unknown as string })
+    const [response] = await sendTimes(app, 1)
+    expect(response?.status).toBe(500)
+    expectNoLeaks(await response?.text())
   })
 })
 
@@ -148,6 +183,27 @@ describe('rateLimit hooks', () => {
     expect(await limited?.json()).toEqual({ error: 'Too Many Requests', retryAfter: 90 })
   })
 
+  test.each<[string, () => Promise<unknown>]>([
+    ['undefined', async () => undefined],
+    ['null', async () => null],
+  ])('an async onLimited resolving to %s still blocks without running the handler', async (_, onLimited) => {
+    const handled: string[] = []
+    const app = new Elysia()
+      .use(rateLimit({ limit: 1, window: '1m', clock: new ManualClock(), onLimited }))
+      .get('/', () => (handled.push('ran'), 'handled'))
+    const [, limited] = await sendTimes(app, 2)
+    expect(limited?.status).toBe(429)
+    expect(await limited?.json()).toEqual({ error: 'Too Many Requests', retryAfter: 120 })
+    expect(handled).toEqual(['ran'])
+  })
+
+  test('an async onLimited body replaces the 429 body', async () => {
+    const app = createApp({ onLimited: async (_, decision) => ({ retryInMs: decision.retryAfterMs }) })
+    const [, , limited] = await sendTimes(app, 3)
+    expect(limited?.status).toBe(429)
+    expect(await limited?.json()).toEqual({ retryInMs: 90_000 })
+  })
+
   test('a key function that returns a non-string fails the request instead of sharing a bucket', async () => {
     const app = createApp({ key: () => 42 as unknown as string })
     expect(statuses(await sendTimes(app, 1))).toEqual([500])
@@ -203,11 +259,13 @@ describe('rateLimit client IP', () => {
 })
 
 describe('rateLimit store failures', () => {
-  test.each([
+  const failures: readonly [string, unknown][] = [
     ['a plain error', new Error(`connection to ${SECRET} refused`)],
     ['a store conflict', new StoreConflictError(`conflict on ${SECRET}`)],
     ['a thrown string', SECRET],
-  ])('passes the request in open mode on %s', async (_, error) => {
+  ]
+
+  test.each(failures)('passes the request in open mode on %s', async (_, error) => {
     const app = createApp({ store: failingStore(error) })
     const [response] = await sendTimes(app, 1)
     expect(response?.status).toBe(200)
@@ -215,14 +273,23 @@ describe('rateLimit store failures', () => {
     expect(response?.headers.has('RateLimit-Limit')).toBe(false)
   })
 
-  test('answers 503 in closed mode without leaking store details', async () => {
-    const app = createApp({ store: failingStore(new Error(`connection to ${SECRET} refused`)), failureMode: 'closed' })
+  test.each(failures)('answers 503 in closed mode on %s without leaking store details', async (_, error) => {
+    const app = createApp({ store: failingStore(error), failureMode: 'closed' })
     const [response] = await sendTimes(app, 1)
     expect(response?.status).toBe(503)
     const body = await response?.text()
     expect(JSON.parse(body ?? '')).toEqual({ error: 'Rate limiter unavailable' })
-    expect(body).not.toContain('hunter2')
-    expect(body).not.toContain('stack')
+    expectNoLeaks(body)
+  })
+
+  test.each<['open' | 'closed', number]>([
+    ['open', 200],
+    ['closed', 503],
+  ])('a Redis store that keeps conflicting answers %s mode with %p, never 500', async (failureMode, status) => {
+    const app = createApp({ store: conflictingRedisStore(), failureMode })
+    const [response] = await sendTimes(app, 1)
+    expect(response?.status).toBe(status)
+    expectNoLeaks(await response?.text())
   })
 
   test('exposes the error as a RateLimiterError on the context', async () => {
@@ -267,6 +334,20 @@ describe('rateLimit scope and instances', () => {
       .use(rateLimit({ limit: 2, window: '1h', prefix: 'hourly' }))
       .get('/', () => 'ok')
     expect(statuses(await sendTimes(app, 3))).toEqual([200, 200, 429])
+  })
+
+  test('a stricter limiter registered first still blocks when a later one allows', async () => {
+    const handled: string[] = []
+    const app = new Elysia()
+      .use(rateLimit({ limit: 2, window: '1m', prefix: 'burst', algorithm: 'fixed-window', clock: new ManualClock() }))
+      .use(rateLimit({ limit: 5, window: '1h', prefix: 'hourly', algorithm: 'fixed-window', clock: new ManualClock() }))
+      .get('/', () => (handled.push('ran'), 'ok'))
+    const responses = await sendTimes(app, 3)
+    expect(statuses(responses)).toEqual([200, 200, 429])
+    expect(handled).toHaveLength(2)
+    expect(responses[2]?.headers.get('RateLimit-Limit')).toBe('2')
+    expect(responses[2]?.headers.get('RateLimit-Remaining')).toBe('0')
+    expect(responses[2]?.headers.get('Retry-After')).toBe('60')
   })
 
   test('the rateLimit context value is typed for handlers', async () => {

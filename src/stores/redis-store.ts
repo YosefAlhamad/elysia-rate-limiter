@@ -45,6 +45,12 @@ export class RedisStore implements RateLimitStore {
     this.maxAttempts = result.data.maxAttempts
   }
 
+  async read(key: string): Promise<string | null> {
+    const reply = await this.send('GET', [key])
+    if (reply === null || typeof reply === 'string') return reply
+    throw new StoreUnavailableError('Rate limit store returned an unexpected reply')
+  }
+
   update<TResult>(key: string, mutation: StoreMutation<TResult>): Promise<TResult> {
     return this.queue.run(key, () => this.compareAndSetLoop(key, mutation))
   }
@@ -62,12 +68,6 @@ export class RedisStore implements RateLimitStore {
       if (await this.compareAndSet(key, current, write)) return write.result
     }
     throw new StoreConflictError(`Rate limit state kept changing after ${this.maxAttempts} attempts`)
-  }
-
-  async read(key: string): Promise<string | null> {
-    const reply = await this.send('GET', [key])
-    if (reply === null || typeof reply === 'string') return reply
-    throw new StoreUnavailableError('Rate limit store returned an unexpected reply')
   }
 
   private async compareAndSet<TResult>(key: string, current: string | null, write: StoreWrite<TResult>): Promise<boolean> {

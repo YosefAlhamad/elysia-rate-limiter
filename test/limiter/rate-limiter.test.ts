@@ -12,6 +12,11 @@ import { ManualClock } from '../helpers/manual-clock'
 
 const ALGORITHMS: readonly AlgorithmName[] = ['fixed-window', 'sliding-window', 'token-bucket']
 
+const STORES: readonly [string, () => RateLimitStore][] = [
+  ['MemoryStore', () => new MemoryStore({ clock: new ManualClock() })],
+  ['RedisStore', () => new RedisStore({ client: new FakeRedis() })],
+]
+
 const openLimiters: RateLimiter[] = []
 
 const createLimiter = (options: Partial<RateLimiterOptions> = {}): RateLimiter => {
@@ -222,16 +227,18 @@ describe('RateLimiter stored state', () => {
     ['negative counts', '{"windowStart":0,"count":-100,"current":-100,"previous":-100,"tokens":-100,"updatedAt":0}'],
   ]
 
-  describe.each(ALGORITHMS)('for %s', (algorithm) => {
-    test.each(corruptValues)('treats %s as empty state and still enforces the limit', async (_, value) => {
-      const store = new MemoryStore({ clock: new ManualClock() })
-      const limiter = createLimiter({ algorithm, store })
-      const key = new KeyBuilder('rate-limit', algorithm).build('user')
-      await store.update(key, () => ({ value, ttlMs: 60_000, result: undefined }))
-      expect((await limiter.peek('user')).remaining).toBe(2)
-      const decisions = await consumeTimes(limiter, 'user', 4)
-      expect(decisions.map((decision) => decision.allowed)).toEqual([true, true, true, false])
-      await store.close()
+  describe.each(STORES)('in %s', (_, createStore) => {
+    describe.each(ALGORITHMS)('for %s', (algorithm) => {
+      test.each(corruptValues)('treats %s as empty state and still enforces the limit', async (_, value) => {
+        const store = createStore()
+        const limiter = createLimiter({ algorithm, store })
+        const key = new KeyBuilder('rate-limit', algorithm).build('user')
+        await store.update(key, () => ({ value, ttlMs: 60_000, result: undefined }))
+        expect((await limiter.peek('user')).remaining).toBe(2)
+        const decisions = await consumeTimes(limiter, 'user', 4)
+        expect(decisions.map((decision) => decision.allowed)).toEqual([true, true, true, false])
+        await store.close?.()
+      })
     })
   })
 
@@ -245,12 +252,7 @@ describe('RateLimiter stored state', () => {
 })
 
 describe('RateLimiter concurrency', () => {
-  const stores: readonly [string, () => RateLimitStore][] = [
-    ['MemoryStore', () => new MemoryStore({ clock: new ManualClock() })],
-    ['RedisStore', () => new RedisStore({ client: new FakeRedis() })],
-  ]
-
-  describe.each(stores)('with %s', (_, createStore) => {
+  describe.each(STORES)('with %s', (_, createStore) => {
     test.each(ALGORITHMS)('allows exactly the limit for 200 parallel %s calls', async (algorithm) => {
       const store = createStore()
       const limiter = createLimiter({ algorithm, store, limit: 50 })
@@ -258,5 +260,15 @@ describe('RateLimiter concurrency', () => {
       expect(decisions.filter((decision) => decision.allowed)).toHaveLength(50)
       await store.close?.()
     })
+  })
+
+  test.each(ALGORITHMS)('two %s instances sharing one Redis retry conflicts and allow exactly the limit', async (algorithm) => {
+    const redis = new FakeRedis()
+    const createShared = () => createLimiter({ algorithm, limit: 50, store: new RedisStore({ client: redis }) })
+    const [first, second] = [createShared(), createShared()]
+    const calls = Array.from({ length: 200 }, (_, index) => (index % 2 === 0 ? first : second).consume('user'))
+    const decisions = await Promise.all(calls)
+    expect(decisions.filter((decision) => decision.allowed)).toHaveLength(50)
+    expect(redis.commands.filter((command) => command.startsWith('EVAL')).length).toBeGreaterThan(200)
   })
 })
