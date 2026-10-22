@@ -2,6 +2,8 @@
 
 Rate limiting for [Elysia](https://elysiajs.com) on Bun: three algorithms, memory or Redis storage, Zod-validated options, standard `RateLimit-*` headers, and safe client IP handling.
 
+**Live demo:** watch all three algorithms decide, request by request, at [ratelimit.yosefalhamad.com](https://ratelimit.yosefalhamad.com).
+
 ## Install
 
 ```sh
@@ -38,7 +40,7 @@ The default store is a `MemoryStore`, which lives inside one process. **If your 
 | `fixed-window` | Counts requests in clock-aligned windows (`12:00:00` to `12:01:00`) | Simple quotas, cheapest to reason about | A client can send up to `2 × limit` across a window boundary |
 | `token-bucket` | A bucket of `limit` tokens that refills evenly over `window` | APIs that should allow short bursts then a steady rate | A full bucket allows a burst of `limit` at once |
 
-Every algorithm stores a few numbers per key, so memory per client is constant.
+Every algorithm stores a few numbers per key, so memory per client is constant. To compare them side by side on the same traffic, open the [live demo](https://ratelimit.yosefalhamad.com).
 
 ## Options
 
