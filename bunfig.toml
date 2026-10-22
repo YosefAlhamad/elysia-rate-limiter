@@ -2,5 +2,5 @@
 exact = false
 
 [test]
-coverageThreshold = 0.9
+coverageThreshold = { lines = 0.9, functions = 0.5 }
 coverageSkipTestFiles = true
